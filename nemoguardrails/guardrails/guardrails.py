@@ -491,13 +491,15 @@ class Guardrails(BaseGuardrails):
     async def shutdown(self) -> None:
         """Lifecycle method to stop the rails engine.
 
-        Idempotent: safe to call multiple times.
+        Idempotent after successful cleanup. Failed or cancelled IORails startup
+        and shutdown may retain resources; call again to retry their cleanup.
         """
-        if not self._started:
-            return
-        if isinstance(self.rails_engine, IORails):
-            await self.rails_engine.stop()
         self._started = False
+        try:
+            if isinstance(self.rails_engine, IORails):
+                await self.rails_engine.stop()
+        finally:
+            self._started = False
 
     async def __aenter__(self):
         """Async context manager entry."""

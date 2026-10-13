@@ -1213,13 +1213,13 @@ class TestGuardrailsLifecycle:
     @patch.object(IORails, "stop", new_callable=AsyncMock)
     @patch.object(IORails, "start", new_callable=AsyncMock)
     @patch.object(IORails, "__init__", return_value=None)
-    async def test_shutdown_without_startup_is_noop(
+    async def test_shutdown_without_startup_delegates_cleanup(
         self, mock_init, mock_start, mock_stop, _content_safety_rails_config
     ):
-        """Calling shutdown() without startup() does not call stop."""
+        """The core owns cleanup state, including an incomplete startup."""
         guardrails = Guardrails(config=_content_safety_rails_config, verbose=False, use_iorails=True)
         await guardrails.shutdown()
-        mock_stop.assert_not_called()
+        mock_stop.assert_awaited_once()
 
     @pytest.mark.asyncio
     @patch.object(IORails, "stop", new_callable=AsyncMock)

@@ -245,7 +245,7 @@ async def test_rollback_timeout_preserves_startup_error_and_cleanup_ownership(ra
     first.stop_gate.set()
     await rails.shutdown()
     assert not first.owned
-    assert not rails.rails_engine.engine_registry._pending_cleanup
+    assert not rails.rails_engine.engine_registry._owned_engines
 
 
 @pytest.mark.asyncio
@@ -337,3 +337,20 @@ async def test_repeated_task_cancellation_preserves_original_and_cleanup_ownersh
     await rails.shutdown()
     assert not first.owned
     assert not second.owned
+
+
+@pytest.mark.asyncio
+async def test_facade_restarts_after_its_engine_is_stopped(rails):
+    """Use engine readiness when deciding whether facade startup is needed."""
+
+    engine = ProbeEngine()
+    rails.rails_engine.engine_registry._engines = {"one": engine}
+    await rails.startup()
+    try:
+        await rails.rails_engine.stop()
+        await rails.startup()
+        assert engine.starts == 2
+        assert engine.owned
+        assert rails._started
+    finally:
+        await rails.shutdown()

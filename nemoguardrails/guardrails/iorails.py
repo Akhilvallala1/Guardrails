@@ -779,7 +779,7 @@ class IORails(BaseGuardrails):
     def __init__(self, config: RailsConfig, *, _report_usage: bool = True) -> None:
         """Build the engine registry and rails manager from the given config."""
         self._running = False
-        self._pending_cleanup: set[str] = set()
+        self._owned_components: set[str] = set()
         self._lifecycle_lock = asyncio.Lock()
         self.config = config
 
@@ -864,6 +864,11 @@ class IORails(BaseGuardrails):
         streaming = self.config.rails.output.streaming
         return streaming is not None and streaming.enabled and len(self.config.rails.output.flows) > 0
 
+    @property
+    def is_running(self) -> bool:
+        """Report readiness independently of resources still owned for cleanup."""
+        return self._running
+
     async def start(self) -> None:
         """Start components, rolling back failures and cancellation.
 
@@ -877,13 +882,13 @@ class IORails(BaseGuardrails):
     async def _start(self) -> None:
         if self._running:
             return
-        if self._pending_cleanup:
+        if self._owned_components:
             await self._stop()
 
-        self._pending_cleanup.add("registry")
+        self._owned_components.add("registry")
         try:
             await self.engine_registry.start()
-            self._pending_cleanup.add("queue")
+            self._owned_components.add("queue")
             await self._generate_async_queue.start()
             # Queue is now live; register the state-observing ObservableGauges.
             # ``lambda: self._running`` is checked at collect time so the gauges
@@ -898,7 +903,7 @@ class IORails(BaseGuardrails):
             await rollback_startup(self._stop)
             raise
 
-        self._pending_cleanup.add("rails")
+        self._owned_components.add("rails")
         self._running = True
 
     async def stop(self) -> None:
@@ -918,7 +923,7 @@ class IORails(BaseGuardrails):
             ("rails", self.rails_manager.stop),
             ("registry", self.engine_registry.stop),
         ):
-            if name not in self._pending_cleanup:
+            if name not in self._owned_components:
                 continue
             try:
                 await stop()
@@ -926,7 +931,7 @@ class IORails(BaseGuardrails):
                 if failure is None or not isinstance(error, Exception):
                     failure = error
             else:
-                self._pending_cleanup.discard(name)
+                self._owned_components.discard(name)
         if failure is not None:
             raise failure
 

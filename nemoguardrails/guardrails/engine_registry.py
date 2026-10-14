@@ -52,7 +52,7 @@ class EngineRegistry:
         self._engines: dict[str, BaseEngine] = {}
         self._llms: dict[str, LLMModel] = {}
         self._running = False
-        self._pending_cleanup: dict[str, BaseEngine] = {}
+        self._owned_engines: dict[str, BaseEngine] = {}
         self._lifecycle_lock = asyncio.Lock()
         self._tracer = tracer
 
@@ -96,10 +96,10 @@ class EngineRegistry:
         if self._running:
             return
 
-        if self._pending_cleanup:
+        if self._owned_engines:
             await self._stop()
         for name, engine in self._engines.items():
-            self._pending_cleanup[name] = engine
+            self._owned_engines[name] = engine
             try:
                 await engine.start()
             except BaseException as e:
@@ -125,7 +125,7 @@ class EngineRegistry:
         self._running = False
         errors: dict[str, Exception] = {}
         interruption: BaseException | None = None
-        for name, engine in tuple(self._pending_cleanup.items()):
+        for name, engine in tuple(self._owned_engines.items()):
             try:
                 await engine.stop()
             except BaseException as e:
@@ -135,7 +135,7 @@ class EngineRegistry:
                 elif interruption is None:
                     interruption = e
             else:
-                self._pending_cleanup.pop(name, None)
+                self._owned_engines.pop(name, None)
 
         if interruption is not None:
             raise interruption

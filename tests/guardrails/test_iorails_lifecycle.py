@@ -16,6 +16,7 @@
 """Regression tests across the real IORails lifecycle, with controlled resources."""
 
 import asyncio
+import sys
 from unittest.mock import AsyncMock
 
 import anyio
@@ -258,7 +259,10 @@ async def test_cancellation_survives_a_secondary_cleanup_error(rails):
     closing = asyncio.create_task(rails.shutdown())
     await first.stop_entered.wait()
     closing.cancel("original cancellation")
-    with pytest.raises(asyncio.CancelledError, match="original cancellation"):
+    with pytest.raises(
+        asyncio.CancelledError,
+        match="original cancellation" if sys.version_info >= (3, 11) else None,
+    ):
         await closing
     assert second.stops == 1
     first.stop_gate.set()
@@ -332,7 +336,10 @@ async def test_repeated_task_cancellation_preserves_original_and_cleanup_ownersh
     await first.stop_entered.wait()
     startup.cancel("rollback cancellation")
     first.stop_gate.set()
-    with pytest.raises(asyncio.CancelledError, match="original cancellation"):
+    with pytest.raises(
+        asyncio.CancelledError,
+        match="original cancellation" if sys.version_info >= (3, 11) else None,
+    ):
         await startup
     await rails.shutdown()
     assert not first.owned

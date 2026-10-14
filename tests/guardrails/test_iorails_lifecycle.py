@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Regression tests across the real core lifecycle, with controlled resources."""
+"""Regression tests across the real IORails lifecycle, with controlled resources."""
 
 import asyncio
 from unittest.mock import AsyncMock

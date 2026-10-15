@@ -37,4 +37,4 @@ async def rollback_startup(stop: Callable[[], Awaitable[None]]) -> None:
         if scope.cancelled_caught:
             log.warning("Startup rollback timed out; cleanup remains pending.")
     except BaseException:
-        log.warning("Startup rollback failed or was interrupted; cleanup remains pending.")
+        log.warning("Startup rollback failed or was interrupted; cleanup remains pending.", exc_info=True)

@@ -16,10 +16,12 @@
 """Regression tests across the real IORails lifecycle, with controlled resources."""
 
 import asyncio
+import logging
 import sys
 from unittest.mock import AsyncMock
 
 import anyio
+import httpx
 import pytest
 
 from nemoguardrails import Guardrails, RailsConfig
@@ -27,6 +29,8 @@ from nemoguardrails.guardrails import _lifecycle
 from nemoguardrails.guardrails.async_work_queue import AsyncWorkQueue
 from nemoguardrails.guardrails.base_engine import BaseEngine
 from nemoguardrails.guardrails.engine_registry import EngineRegistry
+from nemoguardrails.guardrails.iorails import IORails
+from nemoguardrails.http.transport import HttpxHTTPClient
 
 
 class ProbeEngine(BaseEngine):
@@ -361,3 +365,94 @@ async def test_facade_restarts_after_its_engine_is_stopped(rails):
         assert rails._started
     finally:
         await rails.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["timeout", "exception"])
+async def test_real_core_retains_http_owner_after_interrupted_or_failed_close(monkeypatch, failure):
+    """Retry the real RailsManager owner after an unfinished HTTPX close."""
+
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    attempts = []
+    completed = []
+
+    async def close_transport():
+        attempts.append(None)
+        entered.set()
+        await release.wait()
+        if failure == "exception" and len(attempts) == 1:
+            raise RuntimeError("transport cleanup failed")
+        completed.append(None)
+
+    transport = httpx.MockTransport(lambda request: httpx.Response(200))
+    monkeypatch.setattr(transport, "aclose", close_transport)
+    owned = httpx.AsyncClient(transport=transport, trust_env=False)
+    monkeypatch.setattr("nemoguardrails.http.transport.httpx.AsyncClient", lambda **kwargs: owned)
+    rails = Guardrails(RailsConfig.from_content(yaml_content="models: []"), require_iorails=True)
+    core = rails.rails_engine
+    assert isinstance(core, IORails)
+    owner = core.rails_manager._http_client
+    assert isinstance(owner, HttpxHTTPClient)
+    await rails.startup()
+    try:
+        if failure == "timeout":
+            with anyio.move_on_after(0.01) as scope:
+                await rails.shutdown()
+            assert scope.cancelled_caught
+        else:
+            release.set()
+            with pytest.raises(RuntimeError, match="transport cleanup failed"):
+                await rails.shutdown()
+        assert entered.is_set()
+        assert owned.is_closed
+        assert not completed
+        assert "rails" in core._owned_components
+        assert not owner._closed
+        release.set()
+        with anyio.fail_after(1):
+            if failure == "exception":
+                with pytest.raises(RuntimeError, match="transport cleanup failed"):
+                    await rails.shutdown()
+                assert not completed
+                assert "rails" in core._owned_components
+                assert not owner._closed
+            else:
+                await rails.shutdown()
+                assert completed == [None]
+                assert not core._owned_components
+                assert owner._closed
+        assert len(attempts) == 1
+    finally:
+        release.set()
+        if failure == "timeout":
+            await rails.shutdown()
+        await owned.__aexit__(None, None, None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error", [RuntimeError("transport cleanup failed"), asyncio.CancelledError("cleanup interrupted")]
+)
+async def test_rollback_logs_cleanup_exception_and_traceback(caplog, error):
+    """Report why rollback failed without replacing its caller's error."""
+
+    original = ValueError("startup failed")
+
+    async def fail_cleanup():
+        raise error
+
+    with caplog.at_level(logging.WARNING, logger=_lifecycle.__name__):
+        with pytest.raises(ValueError) as caught:
+            try:
+                raise original
+            except BaseException:
+                await _lifecycle.rollback_startup(fail_cleanup)
+                raise
+    assert caught.value is original
+    record = next(record for record in caplog.records if record.name == _lifecycle.__name__)
+    assert record.exc_info is not None
+    assert record.exc_info[1] is error
+    assert record.exc_info[2] is not None
+    assert str(error) in caplog.text
+    assert "Traceback" in caplog.text

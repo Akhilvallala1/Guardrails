@@ -535,7 +535,7 @@ async def test_polygraf_mask_pii_skips_unselected_malformed_entity(monkeypatch, 
     "spans, expected",
     [
         pytest.param([(13, 24, "Person"), (17, 19, "Email")], "SSN on file: <Person> (call back)", id="nested"),
-        pytest.param([(13, 20, "Email"), (17, 24, "Person")], "SSN on file: <Email> (call back)", id="partial"),
+        pytest.param([(13, 19, "Email"), (17, 24, "Person")], "SSN on file: <Person> (call back)", id="partial"),
         pytest.param([(13, 24, "Person"), (13, 24, "Person")], "SSN on file: <Person> (call back)", id="duplicate"),
     ],
 )

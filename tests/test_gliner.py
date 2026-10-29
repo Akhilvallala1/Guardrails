@@ -729,6 +729,7 @@ async def test_gliner_mask_pii_forwards_resolved_api_key():
 
 
 def _span(text: str, value: str, label: str) -> dict:
+    """Build a GLiNER entity dict for the first occurrence of ``value`` in ``text``."""
     start = text.index(value)
     return {
         "value": value,
@@ -772,6 +773,12 @@ def _span(text: str, value: str, label: str) -> dict:
             "Call Jane Doe Smith now",
             [("Jane Doe", "first_name"), ("Doe Smith", "last_name"), ("Jane Doe Smith", "name")],
             "Call [NAME] now",
+            id="multiple-nested",
+        ),
+        pytest.param(
+            "Call Jane Doe Smith Jr now",
+            [("Jane Doe", "first_name"), ("Doe Smith", "last_name"), ("Smith Jr", "suffix_name")],
+            "Call [LAST_NAME] now",
             id="chained-overlap",
         ),
         pytest.param(

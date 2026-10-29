@@ -768,6 +768,18 @@ def _span(text: str, value: str, label: str) -> dict:
             "Email [EMAIL] today",
             id="duplicate",
         ),
+        pytest.param(
+            "Call Jane Doe Smith now",
+            [("Jane Doe", "first_name"), ("Doe Smith", "last_name"), ("Jane Doe Smith", "name")],
+            "Call [NAME] now",
+            id="chained-overlap",
+        ),
+        pytest.param(
+            "Hi JaneDoe",
+            [("Jane", "first_name"), ("Doe", "last_name")],
+            "Hi [FIRST_NAME][LAST_NAME]",
+            id="adjacent-not-merged",
+        ),
     ],
 )
 async def test_gliner_mask_pii_overlapping_spans_do_not_leak(text, spans, expected):
